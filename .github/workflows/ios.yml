@@ -34,6 +34,7 @@ jobs:
           xcodebuild -project Trajets.xcodeproj -scheme Trajets -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
           mkdir -p package/Payload
           cp -R build/Build/Products/Release-iphoneos/Trajets.app package/Payload/
+          python3 -c 'import plistlib; p=plistlib.load(open("package/Payload/Trajets.app/Info.plist","rb")); assert p["CFBundleShortVersionString"] == "2.0"; assert p["CFBundleVersion"] == "2"; assert p["CFBundleIdentifier"] == "com.prive.trajets"; assert "CFBundleIcons" in p'
           cd package
           zip -qry ../Trajets.ipa Payload
       - uses: actions/upload-artifact@v4

@@ -16,6 +16,8 @@ targets:
       path: Trajets/Info.plist
       properties:
         CFBundleDisplayName: Trajets
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
         NSLocationWhenInUseUsageDescription: Votre position permet de mesurer la vitesse et de tracer vos trajets.
         UIBackgroundModes: [location]

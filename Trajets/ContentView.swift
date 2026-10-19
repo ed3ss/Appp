@@ -130,7 +130,7 @@ struct Metric: View {
             Text(value).font(.title2.monospacedDigit().weight(.semibold)).minimumScaleFactor(0.5).lineLimit(1)
             if !unit.isEmpty { Text(unit).font(.caption).foregroundStyle(.secondary) }
         }
-        .frame(maxWidth: .infinity, alignment: .leading).padding(16)
+        .frame(maxWidth: .infinity, minHeight: 72, alignment: .topLeading).padding(16)
         .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 20))
     }
 }
