@@ -1,0 +1,40 @@
+name: Build iOS
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate Xcode project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+      - name: Run tests on an available iPhone simulator
+        run: |
+          DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for group in d["devices"].values() for x in group if x["name"].startswith("iPhone")))')
+          xcodebuild test -project Trajets.xcodeproj -scheme Trajets -destination "platform=iOS Simulator,id=$DEVICE_ID" -resultBundlePath TestResults CODE_SIGNING_ALLOWED=NO
+      - name: Build unsigned iPhone app
+        run: |
+          xcodebuild -project Trajets.xcodeproj -scheme Trajets -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
+          mkdir -p package/Payload
+          cp -R build/Build/Products/Release-iphoneos/Trajets.app package/Payload/
+          cd package
+          zip -qry ../Trajets.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Trajets-unsigned-ipa
+          path: Trajets.ipa
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: iOS-test-results
+          path: TestResults.xcresult
+          if-no-files-found: ignore
