@@ -5,3 +5,7 @@ package/
 *.xcworkspace/
 *.xcresult/
 .DS_Store
+
+build-test/
+dashboard.png
+Verification/

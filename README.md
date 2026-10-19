@@ -1,50 +1,57 @@
-# Trajets — app iPhone privée
+# Trajets 2 — app iPhone privée
 
-Première version native SwiftUI, iOS 17 minimum. Vitesse GPS en km/h, distance en km, durée, carte du parcours, historique et suppression avec confirmation. Interface française avec thème sombre.
+App native SwiftUI, iOS 17 minimum. Compteur GPS, carte, enregistrement écran verrouillé et historique local.
 
-## État
+## Nouveautés V2
 
-Les sources et le workflow sont préparés sous Windows. La compilation et les tests Swift nécessitent Xcode sur Mac ; ils ne sont pas encore exécutés. Aucun dépôt distant n’a été créé et aucun fichier IPA n’a encore été produit.
+- Icône originale : route en forme de T et repère GPS, menthe sur fond sombre.
+- Démarrer / Pause / Reprendre / Terminer restent accessibles au bas de l’écran.
+- Pause manuelle : durée active et distance excluent les pauses. Aucun trait ne relie les portions avant et après une pause.
+- Précision GPS affichée et vitesse mise à jour même à l’arrêt.
+- Carte avec suivi de position, vue satellite, vue d’ensemble et plein écran.
+- Historique : recherche, filtre de la semaine, distance cumulée et durée active cumulée.
+- Renommage des trajets, export GPX 1.1 via la feuille de partage iOS.
+- Réglages : kilomètres/miles et maintien optionnel de l’écran allumé pendant l’enregistrement.
+- Lecture des archives V1, sauvegarde préalable du fichier existant et récupération d’un trajet interrompu.
+- Message persistant et bouton Réessayer si une sauvegarde échoue.
 
-## Compiler depuis Windows avec GitHub Actions
+## Installation et mise à jour
 
-1. Créer un dépôt GitHub **privé**, puis y envoyer le contenu de ce dossier, y compris `.github/workflows/ios.yml`, sur la branche `main`.
-2. Dans GitHub, ouvrir **Actions > Build iOS > Run workflow** si le workflow ne démarre pas automatiquement.
-3. Le Mac hébergé génère le projet Xcode avec XcodeGen, lance les tests puis compile pour iPhone.
-4. Télécharger l’artefact **Trajets-unsigned-ipa**, puis extraire `Trajets.ipa` du ZIP.
-5. Installer AltServer et AltStore Classic en suivant le [guide officiel Windows](https://faq.altstore.io/altstore-classic/how-to-install-altstore-windows).
-6. Transférer le fichier IPA sur l’iPhone, ouvrir AltStore Classic > My Apps > + et le sélectionner. AltStore doit le signer avec votre compte Apple ; l’IPA produit ici n’est pas signé.
-7. Suivre les demandes d’iOS et d’AltStore pour approuver l’installation et activer le mode développeur si demandé.
+Le dépôt privé est [ed3ss/Appp](https://github.com/ed3ss/Appp).
+Dans [Actions](https://github.com/ed3ss/Appp/actions), ouvrir la dernière exécution réussie de **Build iOS**, télécharger l’artefact **Trajets-unsigned-ipa**, puis extraire `Trajets.ipa`.
 
-Avec la signature gratuite, les apps expirent après 7 jours : voir le [guide AltStore](https://faq.altstore.io/altstore-classic/your-altstore). Garder AltServer accessible pour les renouvellements. La compilation GitHub utilise le quota de minutes du compte ; vérifier le quota avant exécution.
+Dans AltStore Classic sur l’iPhone : **My Apps > +**, sélectionner l’IPA. Pour mettre à jour, utiliser le même compte Apple et conserver l’app installée ; **ne pas supprimer Trajets**. Le bundle reste `com.prive.trajets` pour permettre la mise à jour. Exporter les parcours importants en GPX est conseillé avant toute réinstallation.
 
-## Utiliser
+L’IPA n’est pas signé ; AltStore le signe. Avec un compte Apple gratuit, renouveler avant expiration (7 jours). [Guide Windows](https://faq.altstore.io/altstore-classic/how-to-install-altstore-windows) · [Renouvellement](https://faq.altstore.io/altstore-classic/your-altstore).
 
-- Appuyer sur **Démarrer le trajet** et autoriser la localisation pendant l’utilisation, avec la position précise.
-- Attendre le signal GPS à l’extérieur. Verrouiller ensuite l’écran si souhaité.
-- Appuyer sur **Terminer le trajet**, puis confirmer pour retrouver le parcours dans **Historique**.
-- Glisser une ligne de l’historique pour supprimer un trajet.
+## Utilisation
 
-Le suivi démarre au premier plan et utilise le mode iOS de localisation en arrière-plan, avec indicateur système. L’autorisation « Toujours » n’est pas demandée. Le fonctionnement écran verrouillé reste à valider sur l’iPhone cible. Une fermeture forcée, un redémarrage ou une interruption par iOS peut arrêter le suivi. Au lancement suivant, le dernier trajet interrompu est récupéré jusqu’au dernier point sauvegardé ; le suivi ne redémarre pas automatiquement.
+Démarrer au premier plan et autoriser la localisation pendant l’utilisation avec Position exacte. Attendre le GPS à l’extérieur, puis verrouiller l’écran si souhaité. Pause suspend l’enregistrement ; Reprendre démarre une nouvelle portion du tracé. Terminer sauvegarde le trajet dans Historique. Ouvrir un trajet pour le renommer ou exporter le GPX.
 
-## Données et précision
+La moyenne inclut les arrêts sans pause, mais exclut les pauses manuelles. Les positions anciennes, imprécises ou incohérentes sont rejetées. Une perte de GPS d’au moins 30 secondes crée une nouvelle portion sans ajouter de distance inconnue. La distance peut donc être sous-estimée en mauvaise réception.
 
-Les trajets sont enregistrés dans Application Support/trajets.json, par écritures atomiques après chaque point accepté. La protection du fichier permet de continuer à écrire après verrouillage, une fois l’iPhone déverrouillé depuis son démarrage. Aucun serveur de collecte, compte applicatif ou outil d’analyse n’est intégré. Les fonds de carte utilisent Apple Maps et peuvent nécessiter Internet ; les sauvegardes système de l’iPhone peuvent inclure les données de l’app.
+Le GPS peut continuer écran verrouillé grâce au mode iOS de localisation en arrière-plan. Une fermeture forcée, un redémarrage ou une interruption iOS peut arrêter le suivi. Au lancement suivant, le trajet est récupéré jusqu’au dernier point de sauvegarde ; le suivi ne redémarre pas seul. Les tests écran verrouillé et de batterie restent à réaliser sur l’iPhone cible.
 
-Les positions trop anciennes, imprécises ou incohérentes sont rejetées. Les interruptions GPS de 30 secondes ou plus ne sont pas reliées sur la carte et n’ajoutent pas de distance inconnue. La distance peut donc être sous-estimée en cas de mauvaise réception. La vitesse moyenne inclut les arrêts. Pas de mode pause dans cette version.
+## Données
 
-## Validation à effectuer
+Les trajets sont dans Application Support/trajets.json. Lors de la première ouverture d’un fichier existant en V2, une copie `trajets-avant-v2.json` est conservée sans être remplacée. Les champs V2 sont optionnels pour relire les archives V1. Écritures atomiques à chaque point de déplacement accepté ; points de contrôle à l’arrêt toutes les 5 secondes environ quand le GPS fournit des positions.
 
-- Exécuter le workflow : tests unitaires puis compilation iPhone.
-- Installer l’IPA sur un iPhone iOS 17 ou ultérieur.
-- Tester l’autorisation acceptée, refusée, puis modifiée dans Réglages.
-- Enregistrer un trajet de 10 minutes, dont 5 écran verrouillé ; vérifier distance, durée et tracé.
-- Terminer puis relancer l’app : vérifier la conservation de l’historique.
-- Forcer la fermeture pendant un trajet de test puis relancer : vérifier la récupération.
-- Tester une perte de GPS, la suppression annulée/confirmée et le renouvellement AltStore.
+Aucun serveur de collecte ni outil d’analyse. Apple Maps peut nécessiter Internet ; les sauvegardes système de l’iPhone peuvent inclure les données. Les exports GPX contiennent les positions et horaires : ils sont partagés seulement sur action de l’utilisateur. Les exports intermédiaires restent dans le dossier temporaire iOS.
 
-Les tests inclus vérifient la distance, le rejet des doublons et des mauvaises positions, les interruptions GPS, ainsi que la sérialisation de l’historique. Ils ne remplacent pas le test sur appareil réel.
+## Compilation et vérification
 
-Sur Mac : `brew install xcodegen`, `xcodegen generate`, puis ouvrir `Trajets.xcodeproj`. Le fichier `project.yml` est la source du projet.
+Le workflow macOS génère le projet via XcodeGen, exécute les tests, capture le tableau de bord du simulateur puis compile l’IPA iPhone. Les minutes GitHub Actions sont prises sur le quota du compte.
 
-Référence Apple : [suivi en arrière-plan](https://developer.apple.com/documentation/corelocation/cllocationmanager/allowsbackgroundlocationupdates).
+Sur Mac : `brew install xcodegen`, `xcodegen generate`, puis ouvrir `Trajets.xcodeproj`. `project.yml` est la source du projet.
+
+Les tests couvrent : distance, doublons, positions erronées, pertes GPS, ancien format V1, pauses multiples, arrêt pendant une pause, reprise sans ajout de distance, récupération après interruption, format/échappement XML du GPX et conversions d’unités.
+
+À vérifier sur l’iPhone : installation par-dessus la V1 et conservation des trajets ; pause/reprise à pied ; 5 minutes écran verrouillé ; export dans Fichiers et ouverture GPX ; suivi/plein écran ; réglage de veille ; localisation refusée ; affichage avec texte agrandi.
+
+La V2 est en cours de validation GitHub ; le résultat final sera communiqué avec le lien d’exécution.
+
+## Logo
+
+Créé avec l’outil intégré de génération d’images. Original dans `Design/logo-original.png`, prompt dans `Design/README.md`, icône opaque 1024 px dans `Trajets/Assets.xcassets/AppIcon.appiconset`.
+
+Références : [Apple : localisation en arrière-plan](https://developer.apple.com/documentation/corelocation/cllocationmanager/allowsbackgroundlocationupdates) · [GPX 1.1](https://www.topografix.com/gpx/1/1/).

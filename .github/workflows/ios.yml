@@ -3,6 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+    paths-ignore: ['README.md', 'Design/*.md']
   pull_request:
 permissions:
   contents: read
@@ -18,8 +19,15 @@ jobs:
           xcodegen generate
       - name: Run tests on an available iPhone simulator
         run: |
-          DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for group in d["devices"].values() for x in group if x["name"].startswith("iPhone")))')
-          xcodebuild test -project Trajets.xcodeproj -scheme Trajets -destination "platform=iOS Simulator,id=$DEVICE_ID" -resultBundlePath TestResults CODE_SIGNING_ALLOWED=NO
+          DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); phones=[x for group in d["devices"].values() for x in group if x["name"].startswith("iPhone")]; print(next((x["udid"] for x in phones if "SE" in x["name"]),phones[0]["udid"]))')
+          echo "DEVICE_ID=$DEVICE_ID" >> "$GITHUB_ENV"
+          xcodebuild test -project Trajets.xcodeproj -scheme Trajets -destination "platform=iOS Simulator,id=$DEVICE_ID" -derivedDataPath build-test -resultBundlePath TestResults CODE_SIGNING_ALLOWED=NO
+      - name: Capture the dashboard
+        run: |
+          xcrun simctl install "$DEVICE_ID" build-test/Build/Products/Debug-iphonesimulator/Trajets.app
+          xcrun simctl launch "$DEVICE_ID" com.prive.trajets
+          sleep 3
+          xcrun simctl io "$DEVICE_ID" screenshot dashboard.png
       - name: Build unsigned iPhone app
         run: |
           xcodebuild -project Trajets.xcodeproj -scheme Trajets -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
@@ -36,5 +44,7 @@ jobs:
         if: always()
         with:
           name: iOS-test-results
-          path: TestResults.xcresult
+          path: |
+            TestResults.xcresult
+            dashboard.png
           if-no-files-found: ignore

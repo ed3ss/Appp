@@ -7,14 +7,18 @@ final class TripRecorder: NSObject, ObservableObject, CLLocationManagerDelegate 
     @Published private(set) var archive = TripArchive()
     @Published private(set) var speed: Double = 0
     @Published private(set) var lastFix: Date?
+    @Published private(set) var accuracy: Double?
     @Published private(set) var authorization: CLAuthorizationStatus = .notDetermined
     @Published var message: String?
     @Published private(set) var waitingForPermission = false
+    @Published private(set) var saveFailed = false
 
     private let manager = CLLocationManager()
     private let file: URL
     private var storageAvailable = true
+    private var lastSave = Date.distantPast
     var isRecording: Bool { archive.active != nil }
+    var isPaused: Bool { archive.active?.isPaused ?? false }
 
     override init() {
         let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -24,13 +28,19 @@ final class TripRecorder: NSObject, ObservableObject, CLLocationManagerDelegate 
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             if FileManager.default.fileExists(atPath: file.path) {
                 archive = try JSONDecoder().decode(TripArchive.self, from: Data(contentsOf: file))
+                // One-time snapshot before V2 writes; never replace this V1 backup.
+                let backup = directory.appendingPathComponent("trajets-avant-v2.json")
+                if !FileManager.default.fileExists(atPath: backup.path) {
+                    try FileManager.default.copyItem(at: file, to: backup)
+                }
             }
             if var interrupted = archive.active {
-                interrupted.endedAt = interrupted.points.last?.timestamp ?? interrupted.startedAt
+                interrupted.recover()
                 archive.trips.insert(interrupted, at: 0)
                 archive.active = nil
-                persist()
-                message = "Le trajet interrompu a été récupéré dans l’historique. Démarrez un nouveau trajet pour reprendre."
+                if persist() {
+                    message = "Le trajet interrompu a été récupéré dans l’historique jusqu’à la dernière sauvegarde."
+                }
             }
         } catch {
             storageAvailable = false
@@ -38,7 +48,7 @@ final class TripRecorder: NSObject, ObservableObject, CLLocationManagerDelegate 
         }
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyBest
-        manager.distanceFilter = 3
+        manager.distanceFilter = kCLDistanceFilterNone
         manager.activityType = .otherNavigation
         manager.pausesLocationUpdatesAutomatically = false
         manager.allowsBackgroundLocationUpdates = true
@@ -46,41 +56,75 @@ final class TripRecorder: NSObject, ObservableObject, CLLocationManagerDelegate 
         authorization = manager.authorizationStatus
     }
 
-    func start() {
-        guard !isRecording, storageAvailable else {
-            if !storageAvailable { message = "Le stockage est indisponible. Relancez l’application après avoir vérifié l’espace disponible." }
-            return
-        }
+    private func permissionOK() -> Bool {
         guard CLLocationManager.locationServicesEnabled() else {
             message = "Activez le service de localisation dans les réglages de l’iPhone."
+            return false
+        }
+        guard manager.authorizationStatus == .authorizedWhenInUse || manager.authorizationStatus == .authorizedAlways else {
+            message = "Autorisez la localisation dans Réglages > Trajets."
+            return false
+        }
+        return true
+    }
+
+    func start() {
+        guard !isRecording, storageAvailable else {
+            if !storageAvailable { message = "Le stockage est indisponible. Vérifiez l’espace disponible puis relancez l’app." }
             return
         }
-        switch manager.authorizationStatus {
-        case .notDetermined:
+        if manager.authorizationStatus == .notDetermined {
             waitingForPermission = true
             manager.requestWhenInUseAuthorization()
-        case .authorizedWhenInUse, .authorizedAlways:
-            archive.active = Trip()
-            speed = 0
-            lastFix = nil
-            guard persist() else {
-                archive.active = nil
-                return
-            }
-            manager.startUpdatingLocation()
-        default:
-            message = "Autorisez la localisation dans Réglages > Trajets pour enregistrer un trajet."
+            return
         }
+        guard permissionOK() else { return }
+        let previous = archive
+        archive.active = Trip()
+        guard persist() else { archive = previous; return }
+        clearFix()
+        manager.startUpdatingLocation()
+    }
+
+    func togglePause() {
+        guard var trip = archive.active else { return }
+        let wasPaused = trip.isPaused
+        if wasPaused {
+            guard permissionOK() else { return }
+            trip.resume()
+        } else {
+            trip.pause()
+        }
+        let previous = archive
+        archive.active = trip
+        guard persist() else { archive = previous; return }
+        clearFix()
+        if wasPaused { manager.startUpdatingLocation() } else { manager.stopUpdatingLocation() }
     }
 
     func stop() {
         guard var trip = archive.active else { return }
-        manager.stopUpdatingLocation()
-        trip.endedAt = Date()
+        let previous = archive
+        trip.finish()
         archive.trips.insert(trip, at: 0)
         archive.active = nil
-        speed = 0
-        persist()
+        guard persist() else {
+            archive = previous
+            // Keep the unsaved trip in memory, paused, until the user retries saving.
+            archive.active?.pause()
+            manager.stopUpdatingLocation()
+            clearFix()
+            return
+        }
+        manager.stopUpdatingLocation()
+        clearFix()
+    }
+
+    func rename(_ id: UUID, name: String) {
+        guard let index = archive.trips.firstIndex(where: { $0.id == id }) else { return }
+        let previous = archive
+        archive.trips[index].name = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(100))
+        if !persist() { archive = previous }
     }
 
     func delete(_ id: UUID) {
@@ -89,14 +133,22 @@ final class TripRecorder: NSObject, ObservableObject, CLLocationManagerDelegate 
         if !persist() { archive = previous }
     }
 
+    func retrySave() { if storageAvailable { persist() } }
+    func checkpoint() { if storageAvailable && isRecording { persist() } }
+
+    private func clearFix() { speed = 0; lastFix = nil; accuracy = nil }
+
     @discardableResult
     private func persist() -> Bool {
         do {
             let data = try JSONEncoder().encode(archive)
             try data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            lastSave = Date()
+            saveFailed = false
             return true
         } catch {
-            message = "La sauvegarde a échoué. Libérez de l’espace et gardez l’application ouverte. \(error.localizedDescription)"
+            if !saveFailed { message = "La sauvegarde a échoué. Libérez de l’espace puis utilisez Réessayer. Gardez l’application ouverte. \(error.localizedDescription)" }
+            saveFailed = true
             return false
         }
     }
@@ -106,28 +158,28 @@ final class TripRecorder: NSObject, ObservableObject, CLLocationManagerDelegate 
         if waitingForPermission, authorization != .notDetermined {
             waitingForPermission = false
             start()
-        } else if isRecording,
-                  authorization == .denied || authorization == .restricted {
+        } else if isRecording && (authorization == .denied || authorization == .restricted) {
             stop()
-            message = "Le trajet a été arrêté car l’accès à la localisation a été retiré."
+            message = saveFailed ? "Localisation retirée. Le trajet attend une sauvegarde : libérez de l’espace puis réessayez." :
+                "Le trajet a été arrêté car l’accès à la localisation a été retiré."
         }
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        guard var trip = archive.active else { return }
+        guard var trip = archive.active, !trip.isPaused else { return }
         var changed = false
         for location in locations.sorted(by: { $0.timestamp < $1.timestamp }) {
-            if location.horizontalAccuracy >= 0, location.horizontalAccuracy <= 50,
-               abs(location.timestamp.timeIntervalSinceNow) < 15 {
+            let before = trip.lastObservedAt
+            if trip.append(location) { changed = true }
+            if trip.lastObservedAt != before {
                 speed = location.speed >= 0 && location.speed < 100 ? location.speed : 0
                 lastFix = location.timestamp
+                accuracy = location.horizontalAccuracy
             }
-            if trip.append(location) { changed = true }
         }
-        if changed {
-            archive.active = trip
-            persist()
-        }
+        archive.active = trip
+        // Moving points are durable immediately; stationary checkpoints every 5 seconds.
+        if changed || Date().timeIntervalSince(lastSave) >= 5 { persist() }
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
