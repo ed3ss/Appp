@@ -3,7 +3,7 @@ import Combine
 import CoreLocation
 
 @MainActor
-final class TripRecorder: NSObject, ObservableObject, CLLocationManagerDelegate {
+final class TripRecorder: NSObject, ObservableObject, @preconcurrency CLLocationManagerDelegate {
     @Published private(set) var archive = TripArchive()
     @Published private(set) var speed: Double = 0
     @Published private(set) var lastFix: Date?
@@ -13,6 +13,8 @@ final class TripRecorder: NSObject, ObservableObject, CLLocationManagerDelegate 
     @Published private(set) var waitingForPermission = false
     @Published private(set) var saveFailed = false
 
+    @Published private(set) var liveStatus: String?
+    private let liveController = LiveTripController()
     private let manager = CLLocationManager()
     private let file: URL
     private var storageAvailable = true
@@ -54,6 +56,7 @@ final class TripRecorder: NSObject, ObservableObject, CLLocationManagerDelegate 
         manager.allowsBackgroundLocationUpdates = true
         manager.showsBackgroundLocationIndicator = true
         authorization = manager.authorizationStatus
+        liveController.endOrphans()
     }
 
     private func permissionOK() -> Bool {
@@ -84,6 +87,7 @@ final class TripRecorder: NSObject, ObservableObject, CLLocationManagerDelegate 
         guard persist() else { archive = previous; return }
         clearFix()
         manager.startUpdatingLocation()
+        beginLiveActivity()
     }
 
     func togglePause() {
@@ -100,6 +104,7 @@ final class TripRecorder: NSObject, ObservableObject, CLLocationManagerDelegate 
         guard persist() else { archive = previous; return }
         clearFix()
         if wasPaused { manager.startUpdatingLocation() } else { manager.stopUpdatingLocation() }
+        refreshLiveActivity(force: true)
     }
 
     func stop() {
@@ -114,10 +119,13 @@ final class TripRecorder: NSObject, ObservableObject, CLLocationManagerDelegate 
             archive.active?.pause()
             manager.stopUpdatingLocation()
             clearFix()
+            refreshLiveActivity(force: true)
             return
         }
         manager.stopUpdatingLocation()
         clearFix()
+        liveController.end(liveState(for: trip))
+        liveStatus = nil
     }
 
     func rename(_ id: UUID, name: String) {
@@ -134,7 +142,36 @@ final class TripRecorder: NSObject, ObservableObject, CLLocationManagerDelegate 
     }
 
     func retrySave() { if storageAvailable { persist() } }
-    func checkpoint() { if storageAvailable && isRecording { persist() } }
+    func checkpoint() {
+        if storageAvailable && isRecording { persist(); refreshLiveActivity(force: true) }
+    }
+
+    private var liveEnabled: Bool {
+        (UserDefaults.standard.object(forKey: "liveActivities") as? Bool) ?? true
+    }
+    private func liveState(for trip: Trip) -> LiveTripAttributes.ContentState {
+        .snapshot(distance: trip.distance, speed: speed, lastFix: lastFix,
+                  activeSeconds: trip.duration(), isPaused: trip.isPaused,
+                  isFinished: trip.endedAt != nil,
+                  imperial: UserDefaults.standard.bool(forKey: "imperial"))
+    }
+    private func beginLiveActivity() {
+        guard liveEnabled, let trip = archive.active else { return }
+        do {
+            try liveController.start(tripID: trip.id, state: liveState(for: trip))
+            liveStatus = nil
+        } catch {
+            liveStatus = "Activité en direct indisponible : \(error.localizedDescription)"
+        }
+    }
+    func setLiveActivitiesEnabled(_ enabled: Bool) {
+        if enabled { beginLiveActivity() }
+        else { liveController.end(); liveStatus = nil }
+    }
+    func refreshLiveActivity(force: Bool = false) {
+        guard liveEnabled, let trip = archive.active else { return }
+        liveController.update(liveState(for: trip), force: force)
+    }
 
     private func clearFix() { speed = 0; lastFix = nil; accuracy = nil }
 
@@ -180,6 +217,7 @@ final class TripRecorder: NSObject, ObservableObject, CLLocationManagerDelegate 
         archive.active = trip
         // Moving points are durable immediately; stationary checkpoints every 5 seconds.
         if changed || Date().timeIntervalSince(lastSave) >= 5 { persist() }
+        refreshLiveActivity()
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {

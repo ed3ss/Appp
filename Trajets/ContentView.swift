@@ -6,13 +6,19 @@ struct ContentView: View {
     @EnvironmentObject private var recorder: TripRecorder
     @Environment(\.scenePhase) private var phase
     @AppStorage("keepScreenOn") private var keepScreenOn = false
+    @AppStorage("imperial") private var imperial = false
+    @State private var selectedTab = 0
 
     var body: some View {
-        TabView {
-            Dashboard().tabItem { Label("Trajet", systemImage: "speedometer") }
-            HistoryView().tabItem { Label("Historique", systemImage: "clock.arrow.circlepath") }
-            SettingsView().tabItem { Label("Réglages", systemImage: "gearshape") }
+        TabView(selection: $selectedTab) {
+            Dashboard().tabItem { Label("Trajet", systemImage: "speedometer") }.tag(0)
+            HistoryView().tabItem { Label("Historique", systemImage: "clock.arrow.circlepath") }.tag(1)
+            SettingsView().tabItem { Label("Réglages", systemImage: "gearshape") }.tag(2)
         }
+        .onOpenURL { url in
+            if url.scheme == "trajets" && url.host == "current" { selectedTab = 0 }
+        }
+        .onChange(of: imperial) { _, _ in recorder.refreshLiveActivity(force: true) }
         .onChange(of: keepScreenOn) { _, _ in updateScreen() }
         .onChange(of: recorder.isRecording) { _, _ in updateScreen() }
         .onChange(of: recorder.isPaused) { _, _ in updateScreen() }
@@ -46,6 +52,9 @@ struct Dashboard: View {
                     Label(recorder.isPaused ? "TRAJET EN PAUSE" : recorder.isRecording ? "ENREGISTREMENT EN COURS" : "PRÊT POUR LE DÉPART",
                           systemImage: recorder.isPaused ? "pause.circle" : recorder.isRecording ? "record.circle" : "location")
                         .font(.caption.weight(.semibold)).foregroundStyle(recorder.isPaused ? .orange : .mint)
+                    if let status = recorder.liveStatus {
+                        Text(status).font(.caption).foregroundStyle(.secondary)
+                    }
                     if recorder.saveFailed {
                         Button("Sauvegarde en attente · Réessayer") { recorder.retrySave() }
                             .foregroundStyle(.orange).buttonStyle(.bordered)
@@ -72,7 +81,7 @@ struct Dashboard: View {
                         .frame(height: 250).clipShape(RoundedRectangle(cornerRadius: 24))
                         .overlay(alignment: .bottomTrailing) {
                             Button { fullMap = true } label: { Image(systemName: "arrow.up.left.and.arrow.down.right").padding(12) }
-                                .background(.regularMaterial, in: Circle()).padding(12)
+                                .trajetGlass(radius: 28, interactive: true).padding(12)
                                 .accessibilityLabel("Carte plein écran")
                         }
                     if let trip = recorder.archive.active {
@@ -86,6 +95,7 @@ struct Dashboard: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }.padding()
             }
+            .background(TrajetBackdrop())
             .navigationTitle("Trajets")
             .navigationBarTitleDisplayMode(.inline)
             .safeAreaInset(edge: .bottom) {
@@ -94,16 +104,16 @@ struct Dashboard: View {
                         Button { recorder.togglePause() } label: {
                             Label(recorder.isPaused ? "Reprendre" : "Pause", systemImage: recorder.isPaused ? "play.fill" : "pause.fill")
                                 .frame(maxWidth: .infinity).padding(.vertical, 10)
-                        }.buttonStyle(.bordered)
+                        }.trajetAction()
                     }
                     Button {
                         if recorder.isRecording { confirmStop = true } else { recorder.start() }
                     } label: {
                         Label(recorder.isRecording ? "Terminer" : "Démarrer le trajet", systemImage: recorder.isRecording ? "stop.fill" : "play.fill")
                             .frame(maxWidth: .infinity).padding(.vertical, 10)
-                    }.buttonStyle(.borderedProminent).foregroundStyle(.black)
+                    }.trajetAction(prominent: true).foregroundStyle(.black)
                         .disabled(recorder.waitingForPermission)
-                }.font(.headline).padding().background(.regularMaterial)
+                }.font(.headline).padding(.horizontal).padding(.vertical, 10)
             }
             .confirmationDialog("Terminer et enregistrer ce trajet ?", isPresented: $confirmStop, titleVisibility: .visible) {
                 Button("Enregistrer le trajet") { recorder.stop() }
@@ -131,7 +141,8 @@ struct Metric: View {
             if !unit.isEmpty { Text(unit).font(.caption).foregroundStyle(.secondary) }
         }
         .frame(maxWidth: .infinity, minHeight: 72, alignment: .topLeading).padding(16)
-        .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 20))
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
+        .overlay { RoundedRectangle(cornerRadius: 20).stroke(.white.opacity(0.1), lineWidth: 1) }
     }
 }
 
@@ -167,7 +178,7 @@ struct RouteMap: View {
                 }.accessibilityLabel(showUser ? "Suivre ma position" : "Voir tout le parcours")
                 Button { satellite.toggle() } label: { Image(systemName: satellite ? "map" : "globe.europe.africa.fill") }
                     .accessibilityLabel(satellite ? "Carte standard" : "Carte satellite")
-            }.padding(12).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16)).padding(10)
+            }.padding(12).trajetGlass(radius: 22, interactive: true).padding(10)
         }
         .overlay(alignment: .bottomLeading) {
             if (trip?.points.isEmpty ?? true) && !showUser {
@@ -225,6 +236,8 @@ struct HistoryView: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(TrajetBackdrop())
             .navigationTitle("Historique")
             .searchable(text: $query, prompt: "Nom ou date du trajet")
             .confirmationDialog("Supprimer définitivement ce trajet ?", isPresented: Binding(
@@ -296,6 +309,7 @@ struct TripDetail: View {
                 }
             } else { ContentUnavailableView("Trajet indisponible", systemImage: "map") }
         }
+        .background(TrajetBackdrop())
         .navigationTitle("Parcours").navigationBarTitleDisplayMode(.inline)
         .alert("Nom du trajet", isPresented: $editing) {
             TextField("Ex. Balade du dimanche", text: $draftName)
@@ -317,6 +331,8 @@ struct TripDetail: View {
 }
 
 struct SettingsView: View {
+    @EnvironmentObject private var recorder: TripRecorder
+    @AppStorage("liveActivities") private var liveActivities = true
     @AppStorage("imperial") private var imperial = false
     @AppStorage("keepScreenOn") private var keepScreenOn = false
     var body: some View {
@@ -326,6 +342,14 @@ struct SettingsView: View {
                     Toggle("Utiliser les miles et mph", isOn: $imperial)
                     Toggle("Garder l’écran allumé", isOn: $keepScreenOn)
                     Text("L’écran reste allumé uniquement pendant un enregistrement actif. Cette option consomme davantage de batterie.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+                Section("Dynamic Island et écran verrouillé") {
+                    Toggle("Activités en direct", isOn: $liveActivities)
+                        .onChange(of: liveActivities) { _, enabled in recorder.setLiveActivitiesEnabled(enabled) }
+                    Text("Vitesse, distance et durée pendant un trajet. Sur un iPhone sans Dynamic Island, le suivi reste disponible sur l’écran verrouillé. Touchez l’activité pour retrouver Pause et Terminer.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    Text("iOS décide du rythme d’actualisation. Après une perte de signal ou une interruption, une valeur ancienne est masquée.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Localisation") {
@@ -341,11 +365,13 @@ struct SettingsView: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section {
-                    LabeledContent("Trajets", value: "2.0")
+                    LabeledContent("Trajets", value: "2.1")
                     Text("Durée et vitesse moyenne excluent les pauses manuelles. Les arrêts sans pause restent inclus.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
-            }.navigationTitle("Réglages")
+            }.scrollContentBackground(.hidden)
+                .background(TrajetBackdrop())
+                .navigationTitle("Réglages")
         }
     }
 }

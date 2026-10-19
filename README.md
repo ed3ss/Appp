@@ -1,6 +1,25 @@
-# Trajets 2 — app iPhone privée
+# Trajets 2.1 — Liquid Glass et activité en direct
 
 App native SwiftUI, iOS 17 minimum. Compteur GPS, carte, enregistrement écran verrouillé et historique local.
+
+## Nouveautés 2.1
+
+- Liquid Glass natif sous iOS 26 sur les commandes et contrôles de carte, avec l’apparence système des onglets. Fond dégradé et cartes de statistiques translucides.
+- Sur iOS 17/18 : matériaux translucides compatibles. Le réglage d’accessibilité Réduire la transparence remplace le verre personnalisé par un fond opaque.
+- Extension WidgetKit intégrée : vitesse compacte dans la Dynamic Island, distance/durée/état en vue agrandie, résumé sur l’écran verrouillé.
+- Démarrage automatique de l’activité avec le trajet ; pause/reprise et changements d’unités actualisent le contenu ; Terminer retire l’activité. Après relancement, les activités orphelines sont fermées.
+- Toucher l’activité ouvre l’onglet Trajet pour Pause/Reprendre/Terminer. Ces commandes ne sont pas exécutées directement dans l’îlot.
+- Option Activités en direct dans Réglages. Un refus du système n’empêche jamais l’enregistrement GPS.
+- Actualisations demandées au plus toutes les 5 secondes en déplacement, avec état périmé après 15 secondes sans mise à jour. iOS peut limiter la fréquence ; cet affichage ne remplace pas un compteur instantané. La vitesse n’est pas affichée si la position est trop ancienne, pendant une pause ou après l’arrêt.
+- Aucun serveur de notifications push, App Group ou compte supplémentaire. L’extension doit être conservée lors de la signature AltStore (si AltStore demande de retirer les extensions, choisir de les garder).
+
+Liquid Glass requiert iOS 26. La Dynamic Island nécessite un iPhone doté de cet écran ; le résumé verrouillé reste prévu sur les autres iPhone compatibles. iOS limite la durée de vie d’une activité en direct ; l’enregistrement dans l’app est indépendant.
+
+Compilation avec Xcode 26.3, cible minimale iOS 17, version 2.1 / build 3. L’IPA vérifie la présence de l’extension et la cohérence des versions. Les tests ajoutés couvrent les valeurs périmées, la durée active, les pauses et la taille/sérialisation du contenu d’activité.
+
+Validation 2.1 en cours. À vérifier sur iPhone : démarrer puis revenir à l’accueil, agrandir l’îlot, verrouiller, pause/reprise, terminer, refuser les activités en direct et activer Réduire la transparence. Les états de l’activité ne contiennent pas les coordonnées GPS.
+
+Références : [Live Activities Apple](https://developer.apple.com/documentation/activitykit/displaying-live-data-with-live-activities) · [Liquid Glass Apple](https://developer.apple.com/documentation/swiftui/applying-liquid-glass-to-custom-views).
 
 ## Nouveautés V2
 
