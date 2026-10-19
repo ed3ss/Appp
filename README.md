@@ -48,7 +48,9 @@ Les tests couvrent : distance, doublons, positions erronées, pertes GPS, ancien
 
 À vérifier sur l’iPhone : installation par-dessus la V1 et conservation des trajets ; pause/reprise à pied ; 5 minutes écran verrouillé ; export dans Fichiers et ouverture GPX ; suivi/plein écran ; réglage de veille ; localisation refusée ; affichage avec texte agrandi.
 
-La V2 est en cours de validation GitHub ; le résultat final sera communiqué avec le lien d’exécution.
+V2 validée le 20 octobre 2026 : **13 tests réussis, 0 échec**, compilation iPhone réussie et capture du tableau de bord contrôlée sur un simulateur iPhone SE. Le paquet a été vérifié : version 2.0, build 2, icône présente, identifiant conservé. [Exécution vérifiée](https://github.com/ed3ss/Appp/actions/runs/39338558095). Fichier local : `Trajets-v2.ipa`.
+
+Le compilateur signale encore des avertissements d’isolation pour le délégué Core Location en prévision d’une migration vers Swift 6. Le projet utilise actuellement Swift 5 ; cela ne bloque pas la compilation. Les interactions sur l’iPhone réel (GPS, verrouillage, partage et mise à jour AltStore) restent à vérifier.
 
 ## Logo
 
