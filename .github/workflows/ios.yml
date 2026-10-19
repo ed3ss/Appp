@@ -24,6 +24,7 @@ jobs:
           xcodebuild test -project Trajets.xcodeproj -scheme Trajets -destination "platform=iOS Simulator,id=$DEVICE_ID" -derivedDataPath build-test -resultBundlePath TestResults CODE_SIGNING_ALLOWED=NO
       - name: Capture the dashboard
         run: |
+          xcrun simctl bootstatus "$DEVICE_ID" -b
           xcrun simctl install "$DEVICE_ID" build-test/Build/Products/Debug-iphonesimulator/Trajets.app
           xcrun simctl launch "$DEVICE_ID" com.prive.trajets
           sleep 3

@@ -188,7 +188,7 @@ struct HistoryView: View {
     private var trips: [Trip] {
         recorder.archive.trips.filter { trip in
             let inWeek = Calendar.current.isDate(trip.startedAt, equalTo: Date(), toGranularity: .weekOfYear)
-            return (!weekOnly || inWeek) && (query.isEmpty || trip.title.localizedCaseInsensitiveContains(query))
+            return (!weekOnly || inWeek) && (query.isEmpty || trip.title.localizedCaseInsensitiveContains(query) || trip.startedAt.formatted(date: .abbreviated, time: .shortened).localizedCaseInsensitiveContains(query))
         }
     }
 
