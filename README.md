@@ -17,7 +17,7 @@ Liquid Glass requiert iOS 26. La Dynamic Island nécessite un iPhone doté de ce
 
 Compilation avec Xcode 26.3, cible minimale iOS 17, version 2.1 / build 3. L’IPA vérifie la présence de l’extension et la cohérence des versions. Les tests ajoutés couvrent les valeurs périmées, la durée active, les pauses et la taille/sérialisation du contenu d’activité.
 
-Validation 2.1 en cours. À vérifier sur iPhone : démarrer puis revenir à l’accueil, agrandir l’îlot, verrouiller, pause/reprise, terminer, refuser les activités en direct et activer Réduire la transparence. Les états de l’activité ne contiennent pas les coordonnées GPS.
+Validation 2.1 terminée le 20 octobre 2026 : **17 tests réussis, 0 échec**, compilation iPhone et capture du tableau de bord réussies. Le fichier `Trajets-v2.1.ipa` a été contrôlé : archive intacte, version 2.1 / build 3 et extension WidgetKit présente. [Exécution vérifiée](https://github.com/ed3ss/Appp/actions/runs/39341541444). Le fonctionnement de la Dynamic Island sur un appareil réel reste à confirmer. À vérifier sur iPhone : démarrer puis revenir à l’accueil, agrandir l’îlot, verrouiller, pause/reprise, terminer, refuser les activités en direct et activer Réduire la transparence. Les états de l’activité ne contiennent pas les coordonnées GPS.
 
 Références : [Live Activities Apple](https://developer.apple.com/documentation/activitykit/displaying-live-data-with-live-activities) · [Liquid Glass Apple](https://developer.apple.com/documentation/swiftui/applying-liquid-glass-to-custom-views).
 
@@ -59,7 +59,7 @@ Aucun serveur de collecte ni outil d’analyse. Apple Maps peut nécessiter Inte
 
 ## Compilation et vérification
 
-Le workflow macOS génère le projet via XcodeGen, exécute les tests, capture le tableau de bord du simulateur puis compile l’IPA iPhone. Les minutes GitHub Actions sont prises sur le quota du compte.
+Le workflow macOS génère le projet via XcodeGen, exécute les tests, compile et publie l’IPA iPhone, puis capture le tableau de bord du simulateur. La capture est facultative et ne bloque pas la livraison du paquet. Les minutes GitHub Actions sont prises sur le quota du compte.
 
 Sur Mac : `brew install xcodegen`, `xcodegen generate`, puis ouvrir `Trajets.xcodeproj`. `project.yml` est la source du projet.
 
@@ -69,7 +69,7 @@ Les tests couvrent : distance, doublons, positions erronées, pertes GPS, ancien
 
 V2 validée le 20 octobre 2026 : **13 tests réussis, 0 échec**, compilation iPhone réussie et capture du tableau de bord contrôlée sur un simulateur iPhone SE. Le paquet a été vérifié : version 2.0, build 2, icône présente, identifiant conservé. [Exécution vérifiée](https://github.com/ed3ss/Appp/actions/runs/39338558095). Fichier local : `Trajets-v2.ipa`.
 
-Le compilateur signale encore des avertissements d’isolation pour le délégué Core Location en prévision d’une migration vers Swift 6. Le projet utilise actuellement Swift 5 ; cela ne bloque pas la compilation. Les interactions sur l’iPhone réel (GPS, verrouillage, partage et mise à jour AltStore) restent à vérifier.
+Les avertissements d’isolation du délégué Core Location observés en V2 ont été corrigés en 2.1. Le projet utilise Swift 5. Les interactions sur l’iPhone réel (GPS, verrouillage, partage et mise à jour AltStore) restent à vérifier.
 
 ## Logo
 
