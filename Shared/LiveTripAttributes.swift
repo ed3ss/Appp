@@ -11,6 +11,19 @@ struct LiveTripAttributes: ActivityAttributes {
         var isPaused: Bool
         var isFinished: Bool
         var imperial: Bool
+        var primaryMetric: String?
+
+        var metric: DashboardMetric { DashboardMetric(rawValue: primaryMetric ?? "") ?? .speed }
+        var primaryText: String {
+            switch metric {
+            case .speed: speedText
+            case .distance: distanceText
+            case .duration: elapsedText
+            case .average:
+                (activeSeconds > 0 ? distance / activeSeconds * (imperial ? 2.2369362921 : 3.6) : 0)
+                    .formatted(.number.precision(.fractionLength(0)))
+            }
+        }
 
         static func snapshot(distance: Double, speed: Double, lastFix: Date?,
                              activeSeconds: Double, isPaused: Bool, isFinished: Bool = false,

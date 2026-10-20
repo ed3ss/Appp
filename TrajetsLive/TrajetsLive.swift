@@ -22,9 +22,9 @@ struct TrajetsLiveActivity: Widget {
                 }
                 DynamicIslandExpandedRegion(.trailing) {
                     VStack(alignment: .trailing, spacing: 2) {
-                        Text(context.isStale ? "—" : context.state.speedText)
+                        LivePrimary(state: context.state, stale: context.isStale)
                             .font(.title2.monospacedDigit().bold())
-                        Text(context.state.speedUnit).font(.caption2).foregroundStyle(.secondary)
+                        Text(context.state.metric.unit(imperial: context.state.imperial)).font(.caption2).foregroundStyle(.secondary)
                     }
                 }
                 DynamicIslandExpandedRegion(.bottom) {
@@ -41,10 +41,12 @@ struct TrajetsLiveActivity: Widget {
             } compactLeading: {
                 Image(systemName: context.state.isPaused ? "pause.fill" : "location.fill").foregroundStyle(.mint)
             } compactTrailing: {
-                Text(context.isStale ? "—" : context.state.speedText)
+                LivePrimary(state: context.state, stale: context.isStale)
                     .font(.caption.monospacedDigit().bold())
-                    .frame(maxWidth: 42)
-                    .accessibilityLabel("Vitesse \(context.state.speedUnit)")
+                    .frame(maxWidth: context.state.metric == .duration ? 64 : 48)
+                    .minimumScaleFactor(0.6)
+                    .lineLimit(1)
+                    .accessibilityLabel(context.state.metric.title)
             } minimal: {
                 Image(systemName: context.state.isPaused ? "pause.fill" : "location.fill").foregroundStyle(.mint)
             }
@@ -84,8 +86,8 @@ struct LockScreenTrip: View {
             }
             HStack(alignment: .firstTextBaseline, spacing: 16) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(context.isStale ? "—" : context.state.speedText).font(.title.monospacedDigit().bold())
-                    Text(context.state.speedUnit).font(.caption).foregroundStyle(.secondary)
+                    LivePrimary(state: context.state, stale: context.isStale).font(.title.monospacedDigit().bold())
+                    Text(context.state.metric.unit(imperial: context.state.imperial)).font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 3) {
@@ -96,5 +98,17 @@ struct LockScreenTrip: View {
             }
             Text("Touchez pour ouvrir les commandes").font(.caption2).foregroundStyle(.secondary)
         }.padding(16)
+    }
+}
+
+struct LivePrimary: View {
+    let state: LiveTripAttributes.ContentState
+    let stale: Bool
+    var body: some View {
+        if state.metric == .duration {
+            LiveTimer(state: state, stale: stale)
+        } else {
+            Text(stale ? "—" : state.primaryText)
+        }
     }
 }

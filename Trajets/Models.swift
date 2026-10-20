@@ -37,6 +37,12 @@ struct Trip: Codable, Identifiable {
     var resumedAt: Date?
     var lastRecordedAt: Date?
     var lastObservedAt: Date?
+    var category: String?
+    var favorite: Bool?
+    var autoPaused: Bool?
+    var movingSeconds: Double?
+    var lastMotionAt: Date?
+    var lastMotionSpeed: Double?
 
     var title: String {
         let text = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -54,11 +60,14 @@ struct Trip: Codable, Identifiable {
         guard endedAt == nil, !isPaused else { return }
         pausedAt = date
         lastRecordedAt = date
+        lastMotionAt = nil
+        lastMotionSpeed = nil
     }
     mutating func resume(at date: Date = Date()) {
         guard endedAt == nil, let pausedAt else { return }
         pausedSeconds = (pausedSeconds ?? 0) + max(0, date.timeIntervalSince(pausedAt))
         self.pausedAt = nil
+        autoPaused = false
         segmentNumber = (segmentNumber ?? 0) + 1
         resumedAt = date
         lastRecordedAt = date
@@ -70,6 +79,7 @@ struct Trip: Codable, Identifiable {
             self.pausedAt = nil
         }
         endedAt = date
+        autoPaused = false
         lastRecordedAt = date
     }
     mutating func recover() {
@@ -93,6 +103,7 @@ struct Trip: Codable, Identifiable {
             let meters = location.distance(from: last.location)
             if uninterrupted && gap < 30 {
                 guard meters / seconds < 100 else { return false }
+                recordMotion(location)
                 lastObservedAt = location.timestamp
                 lastRecordedAt = location.timestamp
                 maxSpeed = max(maxSpeed, location.speed >= 0 && location.speed < 100 ? location.speed : 0)
@@ -106,10 +117,23 @@ struct Trip: Codable, Identifiable {
             }
         }
         points.append(TrackPoint(location, segment: segment))
+        recordMotion(location)
         lastObservedAt = location.timestamp
         lastRecordedAt = location.timestamp
         maxSpeed = max(maxSpeed, location.speed >= 0 && location.speed < 100 ? location.speed : 0)
         return true
+    }
+
+    private mutating func recordMotion(_ location: CLLocation) {
+        if let previous = lastMotionAt, let previousSpeed = lastMotionSpeed {
+            let seconds = location.timestamp.timeIntervalSince(previous)
+            if seconds > 0 && seconds <= 10 && previousSpeed > 0.8 && location.speed > 0.8 && location.speed < 100 {
+                movingSeconds = (movingSeconds ?? 0) + seconds
+            }
+        }
+        if movingSeconds == nil { movingSeconds = 0 }
+        lastMotionAt = location.timestamp
+        lastMotionSpeed = location.speed
     }
 
     var segments: [[TrackPoint]] {

@@ -8,6 +8,7 @@ struct ContentView: View {
     @AppStorage("keepScreenOn") private var keepScreenOn = false
     @AppStorage("imperial") private var imperial = false
     @State private var selectedTab = 0
+    @AppStorage("islandMetric") private var islandMetric = "speed"
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -18,6 +19,7 @@ struct ContentView: View {
         .onOpenURL { url in
             if url.scheme == "trajets" && url.host == "current" { selectedTab = 0 }
         }
+        .onChange(of: islandMetric) { _, _ in recorder.refreshLiveActivity(force: true) }
         .onChange(of: imperial) { _, _ in recorder.refreshLiveActivity(force: true) }
         .onChange(of: keepScreenOn) { _, _ in updateScreen() }
         .onChange(of: recorder.isRecording) { _, _ in updateScreen() }
@@ -42,6 +44,9 @@ struct ContentView: View {
 struct Dashboard: View {
     @EnvironmentObject private var recorder: TripRecorder
     @AppStorage("imperial") private var imperial = false
+    @AppStorage("mainMetric") private var mainMetric = "speed"
+    @AppStorage("leftMetric") private var leftMetric = "distance"
+    @AppStorage("rightMetric") private var rightMetric = "duration"
     @State private var confirmStop = false
     @State private var fullMap = false
 
@@ -49,7 +54,7 @@ struct Dashboard: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    Label(recorder.isPaused ? "TRAJET EN PAUSE" : recorder.isRecording ? "ENREGISTREMENT EN COURS" : "PRÊT POUR LE DÉPART",
+                    Label(recorder.isPaused ? (recorder.archive.active?.autoPaused == true ? "PAUSE AUTOMATIQUE" : "TRAJET EN PAUSE") : recorder.isRecording ? "ENREGISTREMENT EN COURS" : "PRÊT POUR LE DÉPART",
                           systemImage: recorder.isPaused ? "pause.circle" : recorder.isRecording ? "record.circle" : "location")
                         .font(.caption.weight(.semibold)).foregroundStyle(recorder.isPaused ? .orange : .mint)
                     if let status = recorder.liveStatus {
@@ -62,19 +67,19 @@ struct Dashboard: View {
                     TimelineView(.periodic(from: .now, by: 1)) { context in
                         let fresh = recorder.lastFix.map { context.date.timeIntervalSince($0) < 10 } ?? false
                         VStack(spacing: 4) {
-                            Text(fresh && !recorder.isPaused ? Display.speed(recorder.speed, imperial: imperial) : "—")
+                            Text(metricValue(mainMetric, at: context.date, fresh: fresh))
                                 .font(.system(size: 76, weight: .light, design: .rounded)).monospacedDigit()
                                 .minimumScaleFactor(0.5).lineLimit(1)
-                                .accessibilityLabel("Vitesse")
-                            Text(imperial ? "mph" : "km/h").foregroundStyle(.secondary)
+                                .accessibilityLabel((DashboardMetric(rawValue: mainMetric) ?? .speed).title)
+                            Text("\((DashboardMetric(rawValue: mainMetric) ?? .speed).title) · \((DashboardMetric(rawValue: mainMetric) ?? .speed).unit(imperial: imperial))").foregroundStyle(.secondary)
                             if recorder.isRecording && !recorder.isPaused {
                                 Text(fresh ? "GPS · précision ±\(Int(recorder.accuracy ?? 0)) m" : "Recherche du signal GPS…")
                                     .font(.caption).foregroundStyle(fresh ? .mint : .orange)
                             }
                         }.frame(maxWidth: .infinity)
                         HStack {
-                            Metric(title: "DISTANCE", value: Display.distance(recorder.archive.active?.distance ?? 0, imperial: imperial), unit: imperial ? "mi" : "km")
-                            Metric(title: "DURÉE ACTIVE", value: Display.time(recorder.archive.active?.duration(at: context.date) ?? 0), unit: "")
+                            dashboardMetric(leftMetric, at: context.date, fresh: fresh)
+                            dashboardMetric(rightMetric, at: context.date, fresh: fresh)
                         }
                     }
                     RouteMap(trip: recorder.archive.active, showUser: recorder.isRecording && !recorder.isPaused)
@@ -90,7 +95,7 @@ struct Dashboard: View {
                             Metric(title: "MAXIMUM", value: Display.speed(trip.maxSpeed, imperial: imperial), unit: imperial ? "mph" : "km/h")
                         }
                     }
-                    Text(recorder.isPaused ? "La pause exclut le temps et les déplacements. Reprenez avant de continuer." :
+                    Text(recorder.isPaused ? (recorder.archive.active?.autoPaused == true ? "Reprise automatique dès que vous repartez. Le GPS reste actif pour détecter le mouvement." : "La pause exclut le temps et les déplacements. Reprenez avant de continuer.") :
                          "Vos trajets restent sur cet iPhone. Le GPS continue écran verrouillé pendant un enregistrement. Ne forcez pas la fermeture de l’app.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }.padding()
@@ -127,6 +132,19 @@ struct Dashboard: View {
                 }
             }
         }
+    }
+    private func metricValue(_ raw: String, at date: Date, fresh: Bool) -> String {
+        let trip = recorder.archive.active
+        switch DashboardMetric(rawValue: raw) ?? .speed {
+        case .speed: return fresh && !recorder.isPaused ? Display.speed(recorder.speed, imperial: imperial) : "—"
+        case .distance: return Display.distance(trip?.distance ?? 0, imperial: imperial)
+        case .duration: return Display.time(trip?.duration(at: date) ?? 0)
+        case .average: return Display.speed(trip.map { $0.duration(at: date) > 0 ? $0.distance / $0.duration(at: date) : 0 } ?? 0, imperial: imperial)
+        }
+    }
+    private func dashboardMetric(_ raw: String, at date: Date, fresh: Bool) -> some View {
+        let metric = DashboardMetric(rawValue: raw) ?? .speed
+        return Metric(title: metric.title.uppercased(), value: metricValue(raw, at: date, fresh: fresh), unit: metric.unit(imperial: imperial))
     }
 }
 
@@ -194,12 +212,14 @@ struct HistoryView: View {
     @AppStorage("imperial") private var imperial = false
     @State private var pendingDelete: Trip?
     @State private var query = ""
-    @State private var weekOnly = false
+    @State private var period = "all"
+    @State private var favoritesOnly = false
+    @State private var category = "all"
 
     private var trips: [Trip] {
         recorder.archive.trips.filter { trip in
-            let inWeek = Calendar.current.isDate(trip.startedAt, equalTo: Date(), toGranularity: .weekOfYear)
-            return (!weekOnly || inWeek) && (query.isEmpty || trip.title.localizedCaseInsensitiveContains(query) || trip.startedAt.formatted(date: .abbreviated, time: .shortened).localizedCaseInsensitiveContains(query))
+            let inPeriod = period == "all" || Calendar.current.isDate(trip.startedAt, equalTo: Date(), toGranularity: period == "month" ? .month : .weekOfYear)
+            return inPeriod && (!favoritesOnly || trip.favorite == true) && (category == "all" || trip.activity.rawValue == category) && (query.isEmpty || trip.title.localizedCaseInsensitiveContains(query) || trip.startedAt.formatted(date: .abbreviated, time: .shortened).localizedCaseInsensitiveContains(query))
         }
     }
 
@@ -207,10 +227,19 @@ struct HistoryView: View {
         NavigationStack {
             List {
                 Section {
-                    Picker("Période", selection: $weekOnly) {
-                        Text("Tout").tag(false)
-                        Text("Cette semaine").tag(true)
+                    Picker("Période", selection: $period) {
+                        Text("Tout").tag("all")
+                        Text("Semaine").tag("week")
+                        Text("Mois").tag("month")
                     }.pickerStyle(.segmented)
+                    Toggle("Favoris uniquement", isOn: $favoritesOnly)
+                    Picker("Catégorie", selection: $category) {
+                        Text("Toutes").tag("all")
+                        ForEach(TripCategory.allCases) { Text($0.title).tag($0.rawValue) }
+                    }
+                    NavigationLink("Statistiques par semaine et par mois") {
+                        StatisticsView(trips: recorder.archive.trips)
+                    }
                     HStack {
                         Metric(title: "\(trips.count) TRAJETS", value: Display.distance(trips.reduce(0) { $0 + $1.distance }, imperial: imperial), unit: imperial ? "mi au total" : "km au total")
                         Metric(title: "TEMPS ACTIF", value: Display.time(trips.reduce(0) { $0 + $1.duration() }), unit: "")
@@ -223,13 +252,19 @@ struct HistoryView: View {
                 ForEach(trips) { trip in
                     NavigationLink { TripDetail(id: trip.id) } label: {
                         VStack(alignment: .leading, spacing: 6) {
-                            Text(trip.title).font(.headline)
+                            HStack {
+                                Label(trip.title, systemImage: trip.activity.icon).font(.headline)
+                                if trip.favorite == true { Image(systemName: "star.fill").foregroundStyle(.yellow) }
+                            }
                             if trip.name?.isEmpty == false {
                                 Text(trip.startedAt.formatted(date: .abbreviated, time: .shortened)).font(.caption).foregroundStyle(.secondary)
                             }
                             Text("\(Display.distance(trip.distance, imperial: imperial)) \(imperial ? "mi" : "km") · \(Display.time(trip.duration()))")
                                 .foregroundStyle(.secondary)
                         }.padding(.vertical, 6)
+                    }
+                    .swipeActions(edge: .leading) {
+                        Button { recorder.toggleFavorite(trip.id) } label: { Label("Favori", systemImage: "star") }.tint(.orange)
                     }
                     .swipeActions {
                         Button(role: .destructive) { pendingDelete = trip } label: { Label("Supprimer", systemImage: "trash") }
@@ -279,6 +314,12 @@ struct TripDetail: View {
                     VStack(alignment: .leading, spacing: 16) {
                         Text(trip.title).font(.title2.bold())
                         Text(trip.startedAt.formatted(date: .long, time: .shortened)).foregroundStyle(.secondary)
+                        Picker("Catégorie", selection: Binding(get: { trip.activity }, set: { recorder.setCategory(id, category: $0) })) {
+                            ForEach(TripCategory.allCases) { Label($0.title, systemImage: $0.icon).tag($0) }
+                        }.pickerStyle(.menu)
+                        Button { recorder.toggleFavorite(id) } label: {
+                            Label(trip.favorite == true ? "Retirer des favoris" : "Ajouter aux favoris", systemImage: trip.favorite == true ? "star.fill" : "star")
+                        }
                         RouteMap(trip: trip).frame(height: 300).clipShape(RoundedRectangle(cornerRadius: 24))
                         Button("Ouvrir la carte en plein écran", systemImage: "arrow.up.left.and.arrow.down.right") { fullMap = true }
                         HStack {
@@ -289,6 +330,9 @@ struct TripDetail: View {
                             Metric(title: "MOYENNE", value: Display.speed(trip.averageSpeed, imperial: imperial), unit: imperial ? "mph" : "km/h")
                             Metric(title: "MAXIMUM", value: Display.speed(trip.maxSpeed, imperial: imperial), unit: imperial ? "mph" : "km/h")
                         }
+                        TripAnalysisView(trip: trip)
+                        NavigationLink("Relire le parcours", destination: ReplayView(trip: trip)).disabled(trip.points.isEmpty)
+                        NavigationLink("Créer une image à partager", destination: ShareTripView(trip: trip))
                         if (trip.pausedSeconds ?? 0) > 0 {
                             Text("Temps en pause : \(Display.time(trip.pausedSeconds ?? 0))").foregroundStyle(.secondary)
                         }
@@ -338,7 +382,11 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section("Enregistrement") {
+                    AutoPauseSettings()
+                }
                 Section("Affichage") {
+                    NavigationLink("Personnaliser les compteurs", destination: DisplaySettings())
                     Toggle("Utiliser les miles et mph", isOn: $imperial)
                     Toggle("Garder l’écran allumé", isOn: $keepScreenOn)
                     Text("L’écran reste allumé uniquement pendant un enregistrement actif. Cette option consomme davantage de batterie.")
@@ -356,17 +404,18 @@ struct SettingsView: View {
                     Button("Ouvrir les réglages de l’iPhone", systemImage: "location") {
                         if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
                     }
-                    Text("Activez Position exacte. Le GPS fonctionne sans Internet ; le chargement des cartes peut nécessiter une connexion. La pause suspend le GPS.")
+                    Text("Activez Position exacte. Le GPS fonctionne sans Internet ; le chargement des cartes peut nécessiter une connexion. La pause manuelle suspend le GPS ; la pause automatique garde le GPS actif pour détecter le départ.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Vos données") {
+                    NavigationLink("Sauvegarder et restaurer", destination: BackupView())
                     Text("Trajets conserve vos parcours sur l’iPhone. Vous pouvez exporter chaque parcours en GPX depuis son détail. Les sauvegardes système peuvent inclure vos trajets.")
                     Text("Pour une mise à jour, réinstallez l’IPA avec le même compte AltStore sans supprimer l’app.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section {
-                    LabeledContent("Trajets", value: "2.1")
-                    Text("Durée et vitesse moyenne excluent les pauses manuelles. Les arrêts sans pause restent inclus.")
+                    LabeledContent("Trajets", value: "3.0")
+                    Text("Durée et vitesse moyenne excluent toutes les pauses. Les arrêts sans pause restent inclus.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             }.scrollContentBackground(.hidden)

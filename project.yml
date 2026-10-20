@@ -35,8 +35,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.prive.trajets
         TARGETED_DEVICE_FAMILY: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        MARKETING_VERSION: "2.1"
-        CURRENT_PROJECT_VERSION: "3"
+        MARKETING_VERSION: "3.0"
+        CURRENT_PROJECT_VERSION: "4"
         GENERATE_INFOPLIST_FILE: false
   TrajetsLive:
     type: app-extension
@@ -54,8 +54,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.prive.trajets.live
         TARGETED_DEVICE_FAMILY: "1"
-        MARKETING_VERSION: "2.1"
-        CURRENT_PROJECT_VERSION: "3"
+        MARKETING_VERSION: "3.0"
+        CURRENT_PROJECT_VERSION: "4"
         GENERATE_INFOPLIST_FILE: false
         APPLICATION_EXTENSION_API_ONLY: true
         SKIP_INSTALL: true

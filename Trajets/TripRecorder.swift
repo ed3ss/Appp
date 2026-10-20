@@ -19,6 +19,7 @@ final class TripRecorder: NSObject, ObservableObject, @preconcurrency CLLocation
     private let file: URL
     private var storageAvailable = true
     private var lastSave = Date.distantPast
+    private var autoPauseDetector = AutoPauseDetector()
     var isRecording: Bool { archive.active != nil }
     var isPaused: Bool { archive.active?.isPaused ?? false }
 
@@ -26,6 +27,13 @@ final class TripRecorder: NSObject, ObservableObject, @preconcurrency CLLocation
         let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         file = directory.appendingPathComponent("trajets.json")
         super.init()
+        #if DEBUG
+        if PreviewGallery.screen != nil {
+            archive.trips = [PreviewGallery.trip]
+            storageAvailable = false
+            return
+        }
+        #endif
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             if FileManager.default.fileExists(atPath: file.path) {
@@ -84,7 +92,10 @@ final class TripRecorder: NSObject, ObservableObject, @preconcurrency CLLocation
         guard permissionOK() else { return }
         let previous = archive
         archive.active = Trip()
+        archive.active?.category = UserDefaults.standard.string(forKey: "defaultCategory") ?? TripCategory.other.rawValue
+        archive.active?.movingSeconds = 0
         guard persist() else { archive = previous; return }
+        autoPauseDetector.reset()
         clearFix()
         manager.startUpdatingLocation()
         beginLiveActivity()
@@ -98,10 +109,12 @@ final class TripRecorder: NSObject, ObservableObject, @preconcurrency CLLocation
             trip.resume()
         } else {
             trip.pause()
+            trip.autoPaused = false
         }
         let previous = archive
         archive.active = trip
         guard persist() else { archive = previous; return }
+        autoPauseDetector.reset()
         clearFix()
         if wasPaused { manager.startUpdatingLocation() } else { manager.stopUpdatingLocation() }
         refreshLiveActivity(force: true)
@@ -141,6 +154,41 @@ final class TripRecorder: NSObject, ObservableObject, @preconcurrency CLLocation
         if !persist() { archive = previous }
     }
 
+    func setCategory(_ id: UUID, category: TripCategory) {
+        guard let index = archive.trips.firstIndex(where: { $0.id == id }) else { return }
+        let previous = archive
+        archive.trips[index].category = category.rawValue
+        if !persist() { archive = previous }
+    }
+    func toggleFavorite(_ id: UUID) {
+        guard let index = archive.trips.firstIndex(where: { $0.id == id }) else { return }
+        let previous = archive
+        archive.trips[index].favorite = !(archive.trips[index].favorite ?? false)
+        if !persist() { archive = previous }
+    }
+    func setAutoPauseEnabled(_ enabled: Bool) {
+        autoPauseDetector.reset()
+        if !enabled && archive.active?.autoPaused == true { togglePause() }
+    }
+    func restore(_ incoming: TripArchive) {
+        guard storageAvailable else {
+            message = "Le stockage est indisponible. Les fichiers existants restent conservés."
+            return
+        }
+        let merged = BackupStore.merging(incoming, into: archive)
+        guard merged.added > 0 else { message = "Tous ces trajets sont déjà présents."; return }
+        do {
+            // A durable rollback copy is made before the first write.
+            let directory = file.deletingLastPathComponent()
+            let backup = directory.appendingPathComponent("avant-import-\(UUID().uuidString).json")
+            try JSONEncoder().encode(archive).write(to: backup, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            let previous = archive
+            archive = merged.archive
+            guard persist() else { archive = previous; return }
+            message = "\(merged.added) trajet(s) ajouté(s). Les trajets déjà présents ont été conservés."
+        } catch { message = "Restauration annulée : \(error.localizedDescription)" }
+    }
+
     func retrySave() { if storageAvailable { persist() } }
     func checkpoint() {
         if storageAvailable && isRecording { persist(); refreshLiveActivity(force: true) }
@@ -150,10 +198,12 @@ final class TripRecorder: NSObject, ObservableObject, @preconcurrency CLLocation
         (UserDefaults.standard.object(forKey: "liveActivities") as? Bool) ?? true
     }
     private func liveState(for trip: Trip) -> LiveTripAttributes.ContentState {
-        .snapshot(distance: trip.distance, speed: speed, lastFix: lastFix,
+        var state = LiveTripAttributes.ContentState.snapshot(distance: trip.distance, speed: speed, lastFix: lastFix,
                   activeSeconds: trip.duration(), isPaused: trip.isPaused,
                   isFinished: trip.endedAt != nil,
                   imperial: UserDefaults.standard.bool(forKey: "imperial"))
+        state.primaryMetric = UserDefaults.standard.string(forKey: "islandMetric") ?? "speed"
+        return state
     }
     private func beginLiveActivity() {
         guard liveEnabled, let trip = archive.active else { return }
@@ -177,6 +227,9 @@ final class TripRecorder: NSObject, ObservableObject, @preconcurrency CLLocation
 
     @discardableResult
     private func persist() -> Bool {
+        #if DEBUG
+        if PreviewGallery.screen != nil { return true }
+        #endif
         do {
             let data = try JSONEncoder().encode(archive)
             try data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
@@ -203,9 +256,23 @@ final class TripRecorder: NSObject, ObservableObject, @preconcurrency CLLocation
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        guard var trip = archive.active, !trip.isPaused else { return }
+        guard var trip = archive.active, !trip.isPaused || trip.autoPaused == true else { return }
         var changed = false
+        var pauseChanged = false
         for location in locations.sorted(by: { $0.timestamp < $1.timestamp }) {
+            if UserDefaults.standard.bool(forKey: "autoPause"),
+               let decision = autoPauseDetector.observe(location, autoPaused: trip.autoPaused == true, now: Date()) {
+                if decision == .pause && !trip.isPaused {
+                    trip.pause(at: location.timestamp)
+                    trip.autoPaused = true
+                    pauseChanged = true
+                    clearFix()
+                } else if decision == .resume && trip.autoPaused == true {
+                    trip.resume(at: location.timestamp)
+                    pauseChanged = true
+                }
+            }
+            if trip.isPaused { continue }
             let before = trip.lastObservedAt
             if trip.append(location) { changed = true }
             if trip.lastObservedAt != before {
@@ -216,8 +283,8 @@ final class TripRecorder: NSObject, ObservableObject, @preconcurrency CLLocation
         }
         archive.active = trip
         // Moving points are durable immediately; stationary checkpoints every 5 seconds.
-        if changed || Date().timeIntervalSince(lastSave) >= 5 { persist() }
-        refreshLiveActivity()
+        if changed || pauseChanged || Date().timeIntervalSince(lastSave) >= 5 { persist() }
+        refreshLiveActivity(force: pauseChanged)
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {

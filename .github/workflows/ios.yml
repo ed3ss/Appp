@@ -30,7 +30,7 @@ jobs:
           xcodebuild -project Trajets.xcodeproj -scheme Trajets -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
           mkdir -p package/Payload
           cp -R build/Build/Products/Release-iphoneos/Trajets.app package/Payload/
-          python3 -c 'import plistlib; p=plistlib.load(open("package/Payload/Trajets.app/Info.plist","rb")); assert p["CFBundleShortVersionString"] == "2.1"; assert p["CFBundleVersion"] == "3"; assert p["CFBundleIdentifier"] == "com.prive.trajets"; assert "CFBundleIcons" in p; assert p["NSSupportsLiveActivities"]; w=plistlib.load(open("package/Payload/Trajets.app/PlugIns/TrajetsLive.appex/Info.plist","rb")); assert w["CFBundleVersion"] == p["CFBundleVersion"]; assert w["NSExtension"]["NSExtensionPointIdentifier"] == "com.apple.widgetkit-extension"'
+          python3 -c 'import plistlib; p=plistlib.load(open("package/Payload/Trajets.app/Info.plist","rb")); assert p["CFBundleShortVersionString"] == "3.0"; assert p["CFBundleVersion"] == "4"; assert p["CFBundleIdentifier"] == "com.prive.trajets"; assert "CFBundleIcons" in p; assert p["NSSupportsLiveActivities"]; w=plistlib.load(open("package/Payload/Trajets.app/PlugIns/TrajetsLive.appex/Info.plist","rb")); assert w["CFBundleVersion"] == p["CFBundleVersion"]; assert w["NSExtension"]["NSExtensionPointIdentifier"] == "com.apple.widgetkit-extension"'
           cd package
           zip -qry ../Trajets.ipa Payload
       - uses: actions/upload-artifact@v4
@@ -49,6 +49,13 @@ jobs:
           xcrun simctl launch "$DEVICE_ID" com.prive.trajets
           sleep 15
           xcrun simctl io "$DEVICE_ID" screenshot dashboard.png
+          mkdir -p screenshots
+          for SCREEN in history detail replay share statistics backup settings; do
+            xcrun simctl terminate "$DEVICE_ID" com.prive.trajets || true
+            xcrun simctl launch "$DEVICE_ID" com.prive.trajets --preview-gallery "$SCREEN"
+            sleep 3
+            xcrun simctl io "$DEVICE_ID" screenshot "screenshots/$SCREEN.png"
+          done
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -56,4 +63,5 @@ jobs:
           path: |
             TestResults.xcresult
             dashboard.png
+            screenshots/
           if-no-files-found: ignore
